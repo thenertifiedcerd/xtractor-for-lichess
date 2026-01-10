@@ -64,297 +64,168 @@
 
 </div>
 
-
-
 <script>
-
     const btn = document.getElementById('btnFetch');
-
     const logDiv = document.getElementById('log');
 
-
-
     function log(msg) {
-
         logDiv.textContent += msg + "\n";
-
-        logDiv.scrollTop = logDiv.scrollHeight; // Auto-scroll to bottom
-
+        logDiv.scrollTop = logDiv.scrollHeight; 
     }
 
-
-
     btn.addEventListener('click', async () => {
-
         const username = document.getElementById('username').value.trim();
-
         const count = document.getElementById('count').value;
 
-
-
         if (!username) {
-
             alert("Please enter a username");
-
             return;
-
         }
 
-
-
         // Reset UI
-
         logDiv.textContent = "";
-
         btn.disabled = true;
-
         btn.textContent = "Fetching...";
-
         
-
         try {
-
             log(`Connecting to Lichess API for user: ${username}...`);
 
-
-
             // Build URL
-
             const params = new URLSearchParams({
-
                 max: count,
-
-                pgnInJson: 'true',
-
+                pgnInJson: 'true', // Ensure we get the moves
                 clocks: 'false',
-
                 opening: 'true',
-
                 perfType: 'rapid,blitz,bullet'
-
             });
-
             const url = `https://lichess.org/api/games/user/${username}?${params.toString()}`;
 
-
-
             // Fetch Request
-
             const response = await fetch(url, {
-
                 headers: { 'Accept': 'application/x-ndjson' }
-
             });
 
-
-
             if (!response.ok) {
-
                 if(response.status === 404) throw new Error("User not found.");
-
                 else throw new Error(`API Error: ${response.status}`);
-
             }
 
-
-
             // Stream Reader setup
-
             const reader = response.body.getReader();
-
             const decoder = new TextDecoder("utf-8");
-
             let buffer = "";
-
             const gamesList = [];
-
             let loop = true;
-
-
 
             log("Stream connected. Downloading...");
 
-
-
             while (loop) {
-
                 const { done, value } = await reader.read();
-
                 if (done) loop = false;
 
-
-
-                // Decode chunk
-
                 const chunk = value ? decoder.decode(value, { stream: true }) : "";
-
                 buffer += chunk;
-
                 
-
-                // Split by newline
-
                 const lines = buffer.split("\n");
-
-                
-
-                // Keep the last incomplete line in the buffer
-
                 buffer = lines.pop();
 
-
-
                 for (const line of lines) {
-
                     if (line.trim()) {
-
                         try {
-
                             const game = JSON.parse(line);
-
                             gamesList.push(game);
-
                             
-
-                            // Update UI every 50 games so it doesn't freeze
-
                             if (gamesList.length % 50 === 0) {
-
                                 log(`Extracted ${gamesList.length} games...`);
-
                             }
-
                         } catch (e) {
-
                             console.warn("Skipped malformed line");
-
                         }
-
                     }
-
                 }
-
             }
-
-
-
-            // Process any leftovers
 
             if (buffer.trim()) {
-
                 try { gamesList.push(JSON.parse(buffer)); } catch(e) {}
-
             }
-
-
 
             log(`\nFinished! Total games: ${gamesList.length}`);
-
             
-
-            // Calculate Stats
-
             calcStats(gamesList, username);
-
-
-
-            // Trigger File Download
-
             downloadFile(gamesList, username);
 
-
-
         } catch (error) {
-
             log(`\nERROR: ${error.message}`);
-
         } finally {
-
             btn.disabled = false;
-
             btn.textContent = "Download Games";
-
         }
-
     });
 
-
-
     function calcStats(games, username) {
-
         if (games.length === 0) return;
-
         
-
         let wins = 0, losses = 0, draws = 0;
-
         
-
         games.forEach(g => {
-
-            // Figure out which color the user played
-
-            // Lichess data structure: g.players.white.user.name
-
             let myColor = 'black';
-
             if (g.players.white.user && g.players.white.user.name.toLowerCase() === username.toLowerCase()) {
-
                 myColor = 'white';
-
             }
 
-
-
             if (!g.winner) draws++;
-
             else if (g.winner === myColor) wins++;
-
             else losses++;
-
         });
 
-
-
         log(`\n--- Session Stats ---\nWins: ${wins}\nLosses: ${losses}\nDraws: ${draws}`);
-
     }
 
-
-
+    // --- UPDATED FUNCTION ---
     function downloadFile(data, username) {
+        log("Generating Text file...");
 
-        log("Generating JSON file...");
+        // Map the array of objects to a single long string
+        const textContent = data.map((g, index) => {
+            // Safely get player names (handle deleted accounts/AI)
+            const white = g.players.white.user ? g.players.white.user.name : "Anonymous";
+            const black = g.players.black.user ? g.players.black.user.name : "Anonymous";
+            
+            // Format Date
+            const date = new Date(g.createdAt).toISOString().split('T')[0];
 
-        const jsonStr = JSON.stringify(data, null, 2);
+            // Format Result
+            let result = "1/2-1/2";
+            if (g.winner === 'white') result = "1-0";
+            if (g.winner === 'black') result = "0-1";
 
-        const blob = new Blob([jsonStr], { type: "application/json" });
+            // Construct the Readable Block
+            return `Game ${index + 1} (${date})
+${white} vs ${black}
+Result: ${result}
 
+${g.pgn}
+
+===========================================================
+`;
+        }).join("\n");
+
+        // Create Blob with text/plain type
+        const blob = new Blob([textContent], { type: "text/plain" });
         const url = URL.createObjectURL(blob);
-
         
-
         const a = document.createElement('a');
-
         a.href = url;
-
-        a.download = `lichess_${username}.json`;
-
+        // Changed extension to .txt
+        a.download = `lichess_${username}.txt`; 
         document.body.appendChild(a);
-
         a.click();
-
         document.body.removeChild(a);
-
         URL.revokeObjectURL(url);
-
         log("File downloaded.");
-
     }
-
 </script>
-
-
+    
 
 </body>
 
